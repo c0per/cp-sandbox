@@ -1,6 +1,7 @@
 use clap::Parser;
 use cp_sandbox::SandboxBuilder;
 use std::time::Duration;
+use tokio::process::Command;
 
 #[derive(Parser)]
 struct Args {
@@ -27,7 +28,10 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
-    let builder = SandboxBuilder::new(&args.command, &args.root, &args.upper).args(&args.args);
+    let mut command = Command::new(&args.command);
+    command.args(&args.args);
+
+    let builder = SandboxBuilder::new(command, &args.root, &args.upper);
 
     let builder = if let Some(m) = args.memory {
         builder.memory(m)

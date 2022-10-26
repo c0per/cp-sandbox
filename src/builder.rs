@@ -1,6 +1,6 @@
 use cgroups_fs::{AutomanagedCgroup, CgroupName};
 use std::path::{Path, PathBuf};
-use tokio::process;
+use tokio::process::Command;
 use uuid::Uuid;
 
 use super::{CommandExt, Sandbox};
@@ -9,38 +9,23 @@ pub struct SandboxBuilder {
     memory_limit: Option<i64>,
     pids_limit: Option<i64>,
 
-    command: String,
-    args: Vec<String>,
+    command: Command,
 
     root_fs: PathBuf,
     upper_dir: PathBuf,
 }
 
 impl SandboxBuilder {
-    pub fn new(command: &str, root_fs: impl AsRef<Path>, upper: impl AsRef<Path>) -> Self {
+    pub fn new(command: Command, root_fs: impl AsRef<Path>, upper: impl AsRef<Path>) -> Self {
         SandboxBuilder {
             memory_limit: None,
             pids_limit: None,
 
-            command: String::from(command),
-            args: Vec::new(),
+            command,
 
             root_fs: root_fs.as_ref().to_path_buf(),
             upper_dir: upper.as_ref().to_path_buf(),
         }
-    }
-
-    pub fn arg(mut self, arg: &str) -> Self {
-        self.args.push(arg.to_string());
-        self
-    }
-
-    pub fn args<S: ToString>(mut self, args: &[S]) -> Self {
-        args.into_iter().for_each(|s| {
-            self.args.push(s.to_string());
-        });
-
-        self
     }
 
     pub fn memory(mut self, memory: i64) -> Self {
@@ -54,11 +39,6 @@ impl SandboxBuilder {
     }
 
     pub fn build(self) -> Sandbox {
-        // Build Command
-        let mut command = process::Command::new(self.command);
-
-        command.args(self.args);
-
         // Build Overlay FS
         let root_dir = tempfile::tempdir().unwrap();
         let work_dir = tempfile::tempdir().unwrap();
@@ -103,7 +83,8 @@ impl SandboxBuilder {
         }
 
         // Apply Overlay and Cgroup
-        let command = command
+        let command = self
+            .command
             .cgroup(&raw_name, &["memory", "cpuacct", "pids"])
             .chroot(&root_dir);
 
