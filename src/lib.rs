@@ -32,7 +32,7 @@ pub struct SandboxOutput {
 
 #[derive(Debug)]
 pub enum SandboxError {
-    Elapsed,
+    Elapsed(SandboxUsage),
     IOError(io::Error),
 }
 
@@ -64,7 +64,7 @@ impl Sandbox {
         let res = timeout(duration, self.command.output()).await;
 
         match res {
-            Err(_) => Err(SandboxError::Elapsed),
+            Err(_) => Err(SandboxError::Elapsed(self.usage())),
 
             Ok(Ok(output)) => Ok(SandboxOutput {
                 output,
