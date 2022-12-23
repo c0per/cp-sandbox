@@ -1,13 +1,12 @@
+use super::{CommandExt, Sandbox};
 use cgroups_fs::{AutomanagedCgroup, CgroupName};
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     path::{Path, PathBuf},
     time::Duration,
 };
 use tokio::process::Command;
 use uuid::Uuid;
-
-use super::{CommandExt, Sandbox};
 
 pub struct SandboxBuilder {
     pub(crate) time_limit: Option<Duration>,
@@ -15,6 +14,7 @@ pub struct SandboxBuilder {
     pub(crate) pids_limit: Option<i64>,
 
     pub(crate) command_string: OsString,
+    pub(crate) args: Vec<OsString>,
 
     pub(crate) overlay: Option<(PathBuf, PathBuf)>,
 }
@@ -37,6 +37,19 @@ impl SandboxBuilder {
 
     pub fn pids(mut self, pids: Option<i64>) -> Self {
         self.pids_limit = pids;
+        self
+    }
+
+    pub fn arg(mut self, arg: impl AsRef<OsStr>) -> Self {
+        self.args.push(arg.as_ref().to_owned());
+        self
+    }
+
+    pub fn args(mut self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Self {
+        for arg in args {
+            self.args.push(arg.as_ref().to_owned());
+        }
+
         self
     }
 
@@ -83,12 +96,15 @@ impl SandboxBuilder {
             command = command.chroot(overlay_root);
         }
 
+        command.args(self.args);
+
         Sandbox {
             // cgroup_name,
             command,
 
             _overlay_dir: overlay_dir,
 
+            time_limit: self.time_limit,
             memory,
             cpuacct,
             _pids: pids,

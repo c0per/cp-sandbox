@@ -1,6 +1,12 @@
 use builder::SandboxBuilder;
 use cgroups_fs::{AutomanagedCgroup, Cgroup, CgroupName};
-use std::{ffi::OsStr, io, path::Path, time::Duration};
+use std::{
+    ffi::OsStr,
+    io,
+    path::Path,
+    process::{ExitStatus, Output},
+    time::Duration,
+};
 use sys_mount::UnmountFlags;
 use tempfile::{self, TempDir};
 use tokio::{process, time::timeout};
@@ -12,6 +18,7 @@ pub struct Sandbox {
 
     _overlay_dir: Option<(TempDir, TempDir)>,
 
+    time_limit: Option<Duration>,
     memory: AutomanagedCgroup,
     cpuacct: AutomanagedCgroup,
     _pids: AutomanagedCgroup,
@@ -31,7 +38,7 @@ pub struct SandboxOutput {
 
 #[derive(Debug)]
 pub enum SandboxError {
-    Elapsed(SandboxUsage),
+    Elapsed,
     IOError(io::Error),
 }
 
@@ -43,12 +50,13 @@ impl Sandbox {
             pids_limit: None,
 
             command_string: command.as_ref().to_os_string(),
+            args: vec![],
 
             overlay: None,
         }
     }
 
-    fn usage(&self) -> SandboxUsage {
+    pub fn usage(&self) -> SandboxUsage {
         let memory = self
             .memory
             .get_value::<u64>("memory.max_usage_in_bytes")
@@ -61,27 +69,31 @@ impl Sandbox {
         }
     }
 
-    pub async fn run(&mut self) -> io::Result<SandboxOutput> {
-        self.command.output().await.map(|output| SandboxOutput {
-            output,
-            usage: self.usage(),
-        })
+    pub async fn status(&mut self) -> Result<ExitStatus, SandboxError> {
+        if let Some(duration) = self.time_limit {
+            timeout(duration, self.command.status()).await.map_or_else(
+                |_| Err(SandboxError::Elapsed),
+                |r| r.map_err(|e| SandboxError::IOError(e)),
+            )
+        } else {
+            self.command
+                .status()
+                .await
+                .map_err(|e| SandboxError::IOError(e))
+        }
     }
 
-    pub async fn run_with_timeout(
-        &mut self,
-        duration: Duration,
-    ) -> Result<SandboxOutput, SandboxError> {
-        let res = timeout(duration, self.command.output()).await;
-
-        match res {
-            Err(_) => Err(SandboxError::Elapsed(self.usage())),
-
-            Ok(Ok(output)) => Ok(SandboxOutput {
-                output,
-                usage: self.usage(),
-            }),
-            Ok(Err(e)) => Err(SandboxError::IOError(e)),
+    pub async fn output(&mut self) -> Result<Output, SandboxError> {
+        if let Some(duration) = self.time_limit {
+            timeout(duration, self.command.output()).await.map_or_else(
+                |_| Err(SandboxError::Elapsed),
+                |r| r.map_err(|e| SandboxError::IOError(e)),
+            )
+        } else {
+            self.command
+                .output()
+                .await
+                .map_err(|e| SandboxError::IOError(e))
         }
     }
 }
