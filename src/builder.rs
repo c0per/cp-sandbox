@@ -65,6 +65,11 @@ impl SandboxBuilder {
         self
     }
 
+    pub fn kill_on_drop(mut self, kill_on_drop: bool) -> Self {
+        self.command.kill_on_drop(kill_on_drop);
+        self
+    }
+
     pub fn build(self) -> Sandbox {
         // Build Overlay FS
         let overlay_dir = if let Some((lower_dir, upper_dir)) = self.overlay {
