@@ -3,6 +3,7 @@ use cgroups_fs::{AutomanagedCgroup, CgroupName};
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
+    process::Stdio,
     time::Duration,
 };
 use tokio::process::Command;
@@ -46,6 +47,21 @@ impl SandboxBuilder {
 
     pub fn args(mut self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Self {
         self.command.args(args);
+        self
+    }
+
+    pub fn stdin(mut self, cfg: impl Into<Stdio>) -> Self {
+        self.command.stdin(cfg);
+        self
+    }
+
+    pub fn stdout(mut self, cfg: impl Into<Stdio>) -> Self {
+        self.command.stdout(cfg);
+        self
+    }
+
+    pub fn stderr(mut self, cfg: impl Into<Stdio>) -> Self {
+        self.command.stderr(cfg);
         self
     }
 
