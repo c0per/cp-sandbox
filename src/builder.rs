@@ -1,7 +1,7 @@
 use super::{CommandExt, Sandbox};
 use cgroups_fs::{AutomanagedCgroup, CgroupName};
 use std::{
-    ffi::{OsStr, OsString},
+    ffi::OsStr,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -13,8 +13,7 @@ pub struct SandboxBuilder {
     pub(crate) memory_limit: Option<i64>,
     pub(crate) pids_limit: Option<i64>,
 
-    pub(crate) command_string: OsString,
-    pub(crate) args: Vec<OsString>,
+    pub(crate) command: Command,
 
     pub(crate) overlay: Option<(PathBuf, PathBuf)>,
 }
@@ -41,15 +40,12 @@ impl SandboxBuilder {
     }
 
     pub fn arg(mut self, arg: impl AsRef<OsStr>) -> Self {
-        self.args.push(arg.as_ref().to_owned());
+        self.command.arg(arg);
         self
     }
 
     pub fn args(mut self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Self {
-        for arg in args {
-            self.args.push(arg.as_ref().to_owned());
-        }
-
+        self.command.args(args);
         self
     }
 
@@ -90,13 +86,12 @@ impl SandboxBuilder {
         }
 
         // Apply Overlay and Cgroup
-        let mut command =
-            Command::new(self.command_string).cgroup(&raw_name, &["memory", "cpuacct", "pids"]);
+        let mut command = self
+            .command
+            .cgroup(&raw_name, &["memory", "cpuacct", "pids"]);
         if let Some((overlay_root, _)) = &overlay_dir {
             command = command.chroot(overlay_root);
         }
-
-        command.args(self.args);
 
         Sandbox {
             // cgroup_name,

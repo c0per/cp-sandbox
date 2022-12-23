@@ -9,7 +9,10 @@ use std::{
 };
 use sys_mount::UnmountFlags;
 use tempfile::{self, TempDir};
-use tokio::{process, time::timeout};
+use tokio::{
+    process::{self, Command},
+    time::timeout,
+};
 
 pub mod builder;
 
@@ -49,8 +52,7 @@ impl Sandbox {
             memory_limit: None,
             pids_limit: None,
 
-            command_string: command.as_ref().to_os_string(),
-            args: vec![],
+            command: Command::new(command),
 
             overlay: None,
         }
