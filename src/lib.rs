@@ -1,17 +1,16 @@
+use builder::SandboxBuilder;
 use cgroups_fs::{AutomanagedCgroup, Cgroup, CgroupName};
-use std::{io, path::Path, time::Duration};
+use std::{ffi::OsStr, io, path::Path, time::Duration};
 use sys_mount::UnmountFlags;
 use tempfile::{self, TempDir};
 use tokio::{process, time::timeout};
 
 pub mod builder;
-pub use builder::SandboxBuilder;
 
 pub struct Sandbox {
     command: process::Command,
 
-    root_dir: TempDir,
-    _work_dir: TempDir,
+    _overlay_dir: Option<(TempDir, TempDir)>,
 
     memory: AutomanagedCgroup,
     cpuacct: AutomanagedCgroup,
@@ -37,6 +36,18 @@ pub enum SandboxError {
 }
 
 impl Sandbox {
+    pub fn builder(command: impl AsRef<OsStr>) -> SandboxBuilder {
+        SandboxBuilder {
+            time_limit: None,
+            memory_limit: None,
+            pids_limit: None,
+
+            command_string: command.as_ref().to_os_string(),
+
+            overlay: None,
+        }
+    }
+
     fn usage(&self) -> SandboxUsage {
         let memory = self
             .memory
@@ -77,7 +88,9 @@ impl Sandbox {
 
 impl Drop for Sandbox {
     fn drop(&mut self) {
-        sys_mount::unmount(self.root_dir.as_ref(), UnmountFlags::DETACH).unwrap();
+        if let Some((overlay_root, _)) = &self._overlay_dir {
+            sys_mount::unmount(overlay_root.path(), UnmountFlags::DETACH).unwrap();
+        }
     }
 }
 

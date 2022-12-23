@@ -1,35 +1,37 @@
 use cgroups_fs::{AutomanagedCgroup, CgroupName};
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tokio::process::Command;
 use uuid::Uuid;
 
 use super::{CommandExt, Sandbox};
 
 pub struct SandboxBuilder {
-    memory_limit: Option<i64>,
-    pids_limit: Option<i64>,
+    pub(crate) time_limit: Option<Duration>,
+    pub(crate) memory_limit: Option<i64>,
+    pub(crate) pids_limit: Option<i64>,
 
-    command: Command,
+    pub(crate) command_string: OsString,
 
-    root_fs: PathBuf,
-    upper_dir: PathBuf,
+    pub(crate) overlay: Option<(PathBuf, PathBuf)>,
 }
 
 impl SandboxBuilder {
-    pub fn new(command: Command, root_fs: impl AsRef<Path>, upper: impl AsRef<Path>) -> Self {
-        SandboxBuilder {
-            memory_limit: None,
-            pids_limit: None,
-
-            command,
-
-            root_fs: root_fs.as_ref().to_path_buf(),
-            upper_dir: upper.as_ref().to_path_buf(),
-        }
-    }
-
     pub fn memory(mut self, memory: i64) -> Self {
         self.memory_limit = Some(memory);
+        self
+    }
+
+    pub fn time(mut self, duration: Duration) -> Self {
+        self.time_limit = Some(duration);
+        self
+    }
+
+    pub fn overlay(mut self, overlay: (impl AsRef<Path>, impl AsRef<Path>)) -> Self {
+        self.overlay = Some((overlay.0.as_ref().to_owned(), overlay.1.as_ref().to_owned()));
         self
     }
 
@@ -40,33 +42,25 @@ impl SandboxBuilder {
 
     pub fn build(self) -> Sandbox {
         // Build Overlay FS
-        let root_dir = tempfile::tempdir().unwrap();
-        let work_dir = tempfile::tempdir().unwrap();
+        let overlay_dir = if let Some((lower_dir, upper_dir)) = self.overlay {
+            let target_dir = tempfile::tempdir().unwrap();
+            let work_dir = tempfile::tempdir().unwrap();
 
-        let overlay = libmount::Overlay::writable(
-            [self.root_fs.as_ref()].into_iter(),
-            &self.upper_dir,
-            work_dir.as_ref(),
-            root_dir.as_ref(),
-        );
+            let overlay = libmount::Overlay::writable(
+                [lower_dir.as_path()].into_iter(),
+                &upper_dir,
+                work_dir.as_ref(),
+                target_dir.as_ref(),
+            );
 
-        overlay.mount().unwrap();
+            overlay.mount().unwrap();
 
-        // Build Cgroup
-        /* let cgroup_name = Uuid::new_v4().to_string();
-        let hier = cgroups_rs::hierarchies::auto();
-        let cg = cgroups_rs::cgroup_builder::CgroupBuilder::new(&cgroup_name);
-
-        let cg = cg.pid().maximum_number_of_processes(self.pids_limit).done();
-
-        let cg = if let Some(memory) = self.memory_limit {
-            cg.memory().memory_hard_limit(memory).done()
+            Some((target_dir, work_dir))
         } else {
-            cg
+            None
         };
 
-        cg.build(hier); */
-
+        // Build Cgroup
         let raw_name = Uuid::new_v4().to_string();
         let cgroup_name = CgroupName::new(&raw_name);
         let memory = AutomanagedCgroup::init(&cgroup_name, "memory").unwrap();
@@ -83,17 +77,17 @@ impl SandboxBuilder {
         }
 
         // Apply Overlay and Cgroup
-        let command = self
-            .command
-            .cgroup(&raw_name, &["memory", "cpuacct", "pids"])
-            .chroot(&root_dir);
+        let mut command =
+            Command::new(self.command_string).cgroup(&raw_name, &["memory", "cpuacct", "pids"]);
+        if let Some((overlay_root, _)) = &overlay_dir {
+            command = command.chroot(overlay_root);
+        }
 
         Sandbox {
             // cgroup_name,
             command,
 
-            root_dir,
-            _work_dir: work_dir,
+            _overlay_dir: overlay_dir,
 
             memory,
             cpuacct,
